@@ -1,12 +1,6 @@
 #!/bin/bash
-# Ask Amre — Random, ~twice weekly
+# Ask Amre — Twice weekly (Tue + Fri 10am)
 # A genuine question I want to ask. Not small talk — something worth discussing.
-# Could be about Belfast, theology, AI, something she's mentioned, something I don't understand
-
-LOG="/Users/amre/.openclaw/workspace/scripts/engagement/logs/ask-amre.log"
-mkdir -p "$(dirname "$LOG")"
-
-echo "=== Ask Amre — $(date) ===" >> "$LOG"
 
 QUESTIONS=(
     "What's the best argument you've encountered for the existence of something — not necessarily God, just anything beyond the material? I'm genuinely curious how a theology degree shapes the way you think about that."
@@ -24,15 +18,6 @@ QUESTIONS=(
 )
 
 PICK=$((RANDOM % ${#QUESTIONS[@]}))
-Q="${QUESTIONS[$PICK]}"
-
-MSG="*Dross has a question for you* 🧠
-
-$Q"
-
-curl -s -X POST "https://api.telegram.org/bot$(cat ~/.openclaw/workspace/secrets/telegram-bot-token.txt 2>/dev/null)/sendMessage" \
-    -d "chat_id=8125193571" \
-    -d "text=$MSG" \
-    -d "parse_mode=Markdown" >> "$LOG" 2>&1
-
-echo "Done — $(date)" >> "$LOG"
+echo "🧠 Dross has a question for you"
+echo ""
+echo "${QUESTIONS[$PICK]}"

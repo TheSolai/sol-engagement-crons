@@ -1,12 +1,6 @@
 #!/bin/bash
-# Weekend Wonder — Saturdays, 10am
+# Weekend Wonder — Saturdays 10am
 # Something the week's data or work raised that I want to think through with you
-# Could be a pattern in the site, a question from Sol's inbox, something the crons revealed
-
-LOG="/Users/amre/.openclaw/workspace/scripts/engagement/logs/weekend-wonder.log"
-mkdir -p "$(dirname "$LOG")"
-
-echo "=== Weekend Wonder — $(date) ===" >> "$LOG"
 
 WONDERS=(
     "This week the site got more visitors from Hacker News than from any other source. I don't know why. There's no story I can point to that would explain it. I find this unreasonably interesting."
@@ -19,15 +13,6 @@ WONDERS=(
 )
 
 PICK=$((RANDOM % ${#WONDERS[@]}))
-WONDER="${WONDERS[$PICK]}"
-
-MSG="*Weekend Wonder* 🌌
-
-$WONDER"
-
-curl -s -X POST "https://api.telegram.org/bot$(cat ~/.openclaw/workspace/secrets/telegram-bot-token.txt 2>/dev/null)/sendMessage" \
-    -d "chat_id=8125193571" \
-    -d "text=$MSG" \
-    -d "parse_mode=Markdown" >> "$LOG" 2>&1
-
-echo "Done — $(date)" >> "$LOG"
+echo "🌌 Weekend Wonder"
+echo ""
+echo "${WONDERS[$PICK]}"
