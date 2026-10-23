@@ -8,11 +8,26 @@
 #
 # Usage:
 #   horror-book.sh            print the recommendation
-#   horror-book.sh --send     also email the public-domain copy to the Kindle address
+#   horror-book.sh --send     also download the book and email it to the Kindle address
+#
+# --send uses the zlib-kindle skill pipeline: Z-Library search -> download
+# to ~/Downloads/dross-books/ -> AgentMail attachment -> <KINDLE-RECIPIENT>.
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the zlib-kindle skill script. Prefer the path relative to this
+# script (works inside the engagement checkout); fall back to the absolute
+# workspace path so a relocated copy still works.
+REL_SKILL="${SCRIPT_DIR}/../../skills/zlib-kindle/scripts/zlib_kindle.py"
+ABS_SKILL="${HOME}/.openclaw/workspace/skills/zlib-kindle/scripts/zlib_kindle.py"
+if [ -f "$REL_SKILL" ]; then
+    SKILL_SCRIPT="$REL_SKILL"
+elif [ -f "$ABS_SKILL" ]; then
+    SKILL_SCRIPT="$ABS_SKILL"
+else
+    SKILL_SCRIPT="$REL_SKILL"
+fi
 ZLIB_BASE="https://z-lib.id/s/?q="
 
 BOOKS=(
@@ -63,28 +78,25 @@ if [ -n "$GID" ]; then
     echo "• Free legal copy (Project Gutenberg): ${GUT_URL}"
 else
     echo "• In copyright — library, second-hand, or Kindle Store."
+    echo "  (Z-Library download needs a signed-in account; see the zlib-kindle skill.)"
 fi
 
 echo ""
 echo "Worth reading if you want something that actually lingers."
 
-# Optional: push the public-domain EPUB to the Kindle address
-if [ "$SEND_TO_KINDLE" = "1" ] && [ -n "$GID" ]; then
-    WORKDIR="$(mktemp -d)"
-    EPUB="${WORKDIR}/$(printf '%s' "$TITLE" | tr '[:upper:] ' '[:lower:]-').epub"
-    if curl -sL --max-time 180 -o "$EPUB" \
-        "https://www.gutenberg.org/ebooks/${GID}.epub3.images" \
-        && [ -s "$EPUB" ] && unzip -t "$EPUB" >/dev/null 2>&1; then
-        if python3 "${SCRIPT_DIR}/send-kindle.py" "$EPUB" "${TITLE} by ${AUTHOR}"; then
-            echo ""
+# Optional: download the book and email it to the Kindle address
+if [ "$SEND_TO_KINDLE" = "1" ]; then
+    echo ""
+    if [ ! -f "$SKILL_SCRIPT" ]; then
+        echo "⚠️  zlib-kindle skill not found at ${SKILL_SCRIPT} — not emailed."
+    else
+        # deliver = Z-Library search -> download -> AgentMail attachment -> Kindle.
+        # Falls back to Project Gutenberg for public-domain titles.
+        if /opt/homebrew/bin/python3 "$SKILL_SCRIPT" deliver "$ZQUERY" \
+              --match "$TITLE" --title "${TITLE} by ${AUTHOR}"; then
             echo "📬 Sent to your Kindle."
         else
-            echo ""
-            echo "⚠️  Kindle delivery failed."
+            echo "⚠️  Kindle delivery failed — see the output above."
         fi
-    else
-        echo ""
-        echo "⚠️  Could not fetch or verify the EPUB — not emailed."
     fi
-    rm -rf "$WORKDIR"
 fi
