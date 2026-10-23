@@ -1,3 +1,4 @@
 # Runtime state and logs (generated, not source)
 logs/
 state/
+__pycache__/

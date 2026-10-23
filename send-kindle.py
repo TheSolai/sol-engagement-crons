@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""
+Send an EPUB/PDF to a Kindle account over SMTP.
+
+Reads mail credentials from the local himalaya config so nothing has to be
+passed on the command line. The password is never logged or printed.
+
+Account order is tried in sequence until one authenticates:
+    gmail  -> icloud
+
+Usage:
+    send-kindle.py <file> [title]
+
+Kindle "send to" addresses are of the form <name>@kindle.com. Amazon converts
+EPUB attachments on delivery, so no conversion step is needed here.
+"""
+import base64
+import mimetypes
+import os
+import re
+import smtplib
+import ssl
+import sys
+from email.message import EmailMessage
+
+HIMALAYA_CONFIG = os.path.expanduser("~/.config/himalaya/config.toml")
+DEFAULT_TO = "amrekin@kindle.com"
+ACCOUNTS = ("gmail", "icloud")
+
+
+def read_account(path, account):
+    """Pull smtp username/password/host/port out of an account block."""
+    text = open(path, encoding="utf-8").read()
+    blocks = text.split("[[accounts]]")
+    block = next((b for b in blocks if re.search(rf'name\s*=\s*"{account}"', b)), "")
+    if not block:
+        raise KeyError(account)
+
+    scope = block.split(f"[accounts.{account}.smtp]", 1)[-1].split(f"[accounts.{account}", 1)[0]
+
+    def field(name, default=None):
+        m = re.search(rf'^\s*{name}\s*=\s*"?([^"\n]+)"?', scope, re.M)
+        return m.group(1).strip() if m else default
+
+    username = field("username")
+    password = field("password")
+    if not username or not password:
+        raise KeyError(account)
+
+    port = int(field("port", "587"))
+    host = field("host") or ("smtp.gmail.com" if account == "gmail" else "smtp.mail.me.com")
+    return username, password, host, port
+
+
+def smtp_connect(username, password, host, port):
+    # NOTE: deliberately not a `with` block. Returning smtp from inside a
+    # context manager closes the socket on exit, and the subsequent
+    # send_message then fails with "please run connect() first".
+    ctx = ssl.create_default_context()
+    smtp = smtplib.SMTP(host, port, timeout=60)
+    try:
+        smtp.ehlo("annmarie.local")
+        if smtp.has_extn("starttls"):
+            smtp.starttls(context=ctx)
+            smtp.ehlo("annmarie.local")
+        smtp.login(username, password)
+    except Exception:
+        try:
+            smtp.quit()
+        except Exception:
+            pass
+        raise
+    return smtp
+
+
+def main():
+    if len(sys.argv) < 2:
+        raise SystemExit(__doc__)
+    path = os.path.abspath(sys.argv[1])
+    if not os.path.isfile(path):
+        raise SystemExit(f"no such file: {path}")
+    title = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(os.path.basename(path))[0]
+
+    ctype, _ = mimetypes.guess_type(path)
+    maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
+    attachment = open(path, "rb").read()
+
+    last_error = None
+    for account in ACCOUNTS:
+        try:
+            username, password, host, port = read_account(HIMALAYA_CONFIG, account)
+        except (KeyError, FileNotFoundError) as exc:
+            last_error = f"{account}: config unavailable ({exc})"
+            continue
+
+        msg = EmailMessage()
+        msg["From"] = f"Annemarie <{username}>"
+        msg["To"] = DEFAULT_TO
+        msg["Subject"] = title
+        msg.set_content(f"{title}\n\nSent from the Dross engagement desk. Enjoy it.\n")
+        msg.add_attachment(attachment, maintype=maintype, subtype=subtype,
+                           filename=os.path.basename(path))
+
+        try:
+            smtp = smtp_connect(username, password, host, port)
+            try:
+                smtp.send_message(msg)
+            finally:
+                try:
+                    smtp.quit()
+                except Exception:
+                    pass
+        except Exception as exc:
+            last_error = f"{account}: {type(exc).__name__}: {exc}"
+            print(f"  · {account} failed -> {last_error}", flush=True)
+            continue
+
+        print("SENT to %s | via %s | subject=%r | attachment=%s (%d bytes)" % (
+            DEFAULT_TO, account, title, os.path.basename(path), len(attachment)))
+        return
+
+    raise SystemExit(f"all accounts failed; last error -> {last_error}")
+
+
+if __name__ == "__main__":
+    main()
