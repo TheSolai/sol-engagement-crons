@@ -1,0 +1,18 @@
+# Delivered-book ledger for the Friday Horror Book of the Week.
+#
+# One "Title|Author" line per book already sent to the Kindle address.
+# Seeded from the AgentMail sent history (thedross@agentmail.to) on
+# 2026-10-29, which is the authoritative record of what was delivered.
+#
+# The Friday script excludes every title listed here before it picks,
+# so a book is never sent twice. The guard is idempotent: recording a
+# title that is already present is a no-op.
+#
+# Format: Title|Author
+
+NOS4A2|Joe Hill
+The Fisherman|John Langan
+Mexican Gothic|Silvia Moreno-Garcia
+The Great God Pan|Arthur Machen
+The King in Yellow|Robert W. Chambers
+The Haunting of Hill House|Shirley Jackson

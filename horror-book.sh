@@ -2,20 +2,26 @@
 # Horror Book of the Week — Fridays 6pm
 # A genuinely good horror book. Not mainstream gatekeeping — something actually scary and well-written
 #
-# Each entry is:  title|author|blurb|zlib-search-query|gutenberg-id
-#   zlib-search-query -> builds a Z-Library search URL for the title
-#   gutenberg-id      -> Project Gutenberg numeric id; empty for in-copyright books
+# The rotation lives in data/horror-books.tsv (title|author|blurb|query|gutenberg-id)
+#   query        -> builds a Z-Library search URL for the title
+#   gutenberg-id -> Project Gutenberg numeric id; empty for in-copyright books
+#
+# Books already delivered are excluded by rotation_guard.py, which reads
+# the ledger in data/delivered-books.txt. A delivered book is never
+# picked again, and a successful delivery is recorded in the ledger.
 #
 # Usage:
 #   horror-book.sh            print the recommendation
 #   horror-book.sh --send     also download the book and email it to the Kindle address
 #
 # --send uses the zlib-kindle skill pipeline: Z-Library search -> download
-# to ~/Downloads/dross-books/ -> AgentMail attachment -> <KINDLE-RECIPIENT>.
+# to ~/Downloads/dross-books/ -> title/author verification -> AgentMail
+# attachment -> <KINDLE-RECIPIENT>.
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Resolve the zlib-kindle skill script. Prefer the path relative to this
 # script (works inside the engagement checkout); fall back to the absolute
 # workspace path so a relocated copy still works.
@@ -28,37 +34,29 @@ elif [ -f "$ABS_SKILL" ]; then
 else
     SKILL_SCRIPT="$REL_SKILL"
 fi
-ZLIB_BASE="https://z-lib.id/s/?q="
 
-BOOKS=(
-    "NOS4A2|Joe Hill|dark fantasy horror about a villain who steals children's souls via Christmas-themed villainy. Visceral, strange, human.|NOS4A2 Joe Hill|"
-    "The Fisherman|John Langan|two government employees tell stories by a river. Slow build, deeply unsettling. Best horror novel of the 2010s.|The Fisherman John Langan|"
-    "Mexican Gothic|Silvia Moreno-Garcia|1950s Mexico, a remote mansion, a sinister family. Gorgeous prose, deeply creepy.|Mexican Gothic Silvia Moreno-Garcia|"
-    "The Only Good Indians|Stephen Graham Jones|four Indigenous friends share a disturbing elk hunt. The fourth story will haunt you.|The Only Good Indians Stephen Graham Jones|"
-    "Ring Shout|P. Djèlí Clark|alternate history 1915, demon hunters using monsters as weapons. Fierce, short, brutal.|Ring Shout P Djeli Clark|"
-    "My Heart Is a Chainsaw|Stephen Graham Jones|Indian reservation, a girl who knows slasher movies. Meta, clever, devastating.|My Heart Is a Chainsaw Stephen Graham Jones|"
-    "The Haunting of Hill House|Shirley Jackson|the original. Every haunted house story owes this something. The prose is ice-cold perfect.|The Haunting of Hill House Shirley Jackson|"
-    "Annihilation|Jeff VanderMeer|expedition into Area X, a landscape that doesn't want you to understand it. Alien in the real sense.|Annihilation Jeff VanderMeer|"
-    "The Croning|Laird Barron|cosmic horror in the Pacific Northwest. A woman realises her family has been touched by something ancient.|The Croning Laird Barron|"
-    "Borne|Jeff VanderMeer|biotech creature clinging to a megacity's flying bear. Beautiful and wrong. VanderMeer at his most unsettling.|Borne Jeff VanderMeer|"
-    "The King in Yellow|Robert W. Chambers|Carpenters, yellow signs, a king in a book you should never read. The book that launched a thousand nightmares.|The King in Yellow Robert W Chambers|8492"
-    "Carmilla|Joseph Sheridan Le Fanu|the original vampire story before Bram Stoker. Elegant, melancholy, and it still creeps.|Carmilla Sheridan Le Fanu|10007"
-    "The Call of Cthulhu|H. P. Lovecraft|the origin point of cosmic horror. A sculptor's dreams and a sleeping god in the basement.|Call of Cthulhu H P Lovecraft|68283"
-    "At the Mountains of Madness|H. P. Lovecraft|Antarctica, an expedition that finds something older than human memory.|At the Mountains of Madness H P Lovecraft|70652"
-    "The Great God Pan|Arthur Machen|a quiet Welsh horror about a god walking in the hills. Small book, permanent damage.|The Great God Pan Arthur Machen|389"
-    "The House of Souls|Arthur Machen|an academic studies an old Welsh manuscript and reality declines to cooperate.|The House of Souls Arthur Machen|25016"
-    "The Turn of the Screw|Henry James|two governesses, a ghost, and a story that cannot be trusted. The unreliable ghost.|Turn of the Screw Henry James|209"
-    "The Yellow Wallpaper|Charlotte Perkins Gilman|a woman, a nursery, and a wallpaper that moves. Short, furious, foundational.|Yellow Wallpaper Charlotte Perkins Gilman|1952"
-    "The Picture of Dorian Gray|Oscar Wilde|a portrait ages, the man doesn't. The most dangerous book in English.|Picture of Dorian Gray Oscar Wilde|174"
-    "Dracula|Bram Stoker|the one everyone thinks of and few have read properly. Epistolary, Victorian, slow-burning.|Dracula Bram Stoker|345"
-    "The Time Machine|H. G. Wells|an invention, a journey, and a very bad idea about progress.|Time Machine H G Wells|35"
-)
+# The rotation guard sits next to this script.
+GUARD="${SCRIPT_DIR}/rotation_guard.py"
+
+ZLIB_BASE="https://z-lib.id/s/?q="
 
 SEND_TO_KINDLE=0
 [ "${1:-}" = "--send" ] && SEND_TO_KINDLE=1
 
-PICK=$((RANDOM % ${#BOOKS[@]}))
-IFS='|' read -r TITLE AUTHOR BLURB ZQUERY GID <<< "${BOOKS[$PICK]}"
+if [ ! -f "$GUARD" ]; then
+    echo "⚠️  rotation guard not found at ${GUARD} — refusing to pick a book."
+    echo "    Without the guard there is no record of what was already sent,"
+    echo "    and a book could be delivered twice."
+    exit 1
+fi
+
+# Pick from the books that have not been delivered yet.
+PICKED=$("$GUARD" pick) || {
+    echo "⚠️  Every book in the rotation has already been delivered."
+    echo "    The rotation needs new entries in data/horror-books.tsv."
+    exit 1
+}
+IFS='|' read -r TITLE AUTHOR BLURB ZQUERY GID <<< "$PICKED"
 
 # URL-encode the search query (spaces -> +, keep alphanumerics)
 ENCODED=$(printf '%s' "$ZQUERY" | sed -e 's/ /+/g' -e 's/&/%26/g' -e 's/?/%3F/g' -e 's/#/%23/g')
@@ -90,13 +88,22 @@ if [ "$SEND_TO_KINDLE" = "1" ]; then
     if [ ! -f "$SKILL_SCRIPT" ]; then
         echo "⚠️  zlib-kindle skill not found at ${SKILL_SCRIPT} — not emailed."
     else
-        # deliver = Z-Library search -> download -> AgentMail attachment -> Kindle.
+        # deliver = Z-Library search -> download -> verify title/author ->
+        # AgentMail attachment -> Kindle.
         # Falls back to Project Gutenberg for public-domain titles.
+        #
+        # The expected title and author are passed through so the file
+        # that actually landed on disk is checked against the book that
+        # was asked for, not just against the search result.
         if /opt/homebrew/bin/python3 "$SKILL_SCRIPT" deliver "$ZQUERY" \
-              --match "$TITLE" --title "${TITLE} by ${AUTHOR}"; then
+              --match "$TITLE" --title "${TITLE} by ${AUTHOR}" \
+              --expect-title "$TITLE" --expect-author "$AUTHOR"; then
             echo "📬 Sent to your Kindle."
+            # Record the delivery so this book is never offered again.
+            "$GUARD" record "$TITLE" "$AUTHOR"
         else
             echo "⚠️  Kindle delivery failed — see the output above."
+            echo "    Nothing was sent, and nothing was recorded."
         fi
     fi
 fi
