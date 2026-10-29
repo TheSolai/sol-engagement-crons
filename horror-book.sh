@@ -95,15 +95,23 @@ if [ "$SEND_TO_KINDLE" = "1" ]; then
         # The expected title and author are passed through so the file
         # that actually landed on disk is checked against the book that
         # was asked for, not just against the search result.
+        # The delivery tool's own stdout can be long (search results, download
+        # notes, per-file progress). It goes to a log file, never into the
+        # announcement, so this job cannot flood the chat.
+        LOG_DIR="${SCRIPT_DIR}/logs"
+        mkdir -p "$LOG_DIR"
+        DELIVER_LOG="${LOG_DIR}/horror-book-deliver.log"
         if /opt/homebrew/bin/python3 "$SKILL_SCRIPT" deliver "$ZQUERY" \
               --match "$TITLE" --title "${TITLE} by ${AUTHOR}" \
-              --expect-title "$TITLE" --expect-author "$AUTHOR"; then
+              --expect-title "$TITLE" --expect-author "$AUTHOR" \
+              > "${DELIVER_LOG}.tmp" 2>&1; then
             echo "📬 Sent to your Kindle."
             # Record the delivery so this book is never offered again.
             "$GUARD" record "$TITLE" "$AUTHOR"
         else
-            echo "⚠️  Kindle delivery failed — see the output above."
-            echo "    Nothing was sent, and nothing was recorded."
+            echo "⚠️  Kindle delivery failed — nothing was sent or recorded."
+            echo "    Details: ${DELIVER_LOG}"
         fi
+        mv -f "${DELIVER_LOG}.tmp" "$DELIVER_LOG" 2>/dev/null || true
     fi
 fi

@@ -81,14 +81,28 @@ with open(seen_file, 'w') as f:
     for mid in sorted(new_seen, reverse=True)[:200]:
         f.write(mid + '\n')
 
-# Output alert — OpenClaw announce system delivers to Telegram
+# Output alert — OpenClaw announce system delivers to Telegram.
+# The block is capped twice: a maximum number of messages listed, and a hard
+# ceiling on the total characters printed. Without both, a busy mailbox turns
+# one alert into a multi-chunk flood, because Telegram splits long messages.
 if new_important:
+    MAX_LISTED = 10
+    MAX_CHARS = 3000
+
     lines = ["📧 New email — don't reply yet"]
-    for item in new_important:
+    for item in new_important[:MAX_LISTED]:
         lines.append(f"\nFrom: {item['from']}")
         lines.append(f"Subj: {item['subject']}")
         if item['preview']:
             lines.append(f"Preview: {item['preview']}")
+    if len(new_important) > MAX_LISTED:
+        lines.append(f"\n…and {len(new_important) - MAX_LISTED} more "
+                     f"important message(s) not shown.")
     lines.append("\n---\nReply to this message if you want me to respond.")
-    print('\n'.join(lines))
+
+    text = '\n'.join(lines)
+    if len(text) > MAX_CHARS:
+        text = (text[:MAX_CHARS].rsplit('\n', 1)[0]
+                + f"\n\n[truncated at {MAX_CHARS} chars]")
+    print(text)
 PYEOF
