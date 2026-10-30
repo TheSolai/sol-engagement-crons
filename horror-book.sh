@@ -101,8 +101,12 @@ say "🔎 Find it:"
 say "• Z-Library search: ${ZLIB_URL}"
 
 if [ -n "$GID" ]; then
-    GUT_URL="https://www.gutenberg.org/ebooks/${GID}"
-    say "• Free legal copy (Project Gutenberg): ${GUT_URL}"
+    # Project Gutenberg is banned as a source (Amre, 2026-10-30): the
+    # Gutenberg pipeline sent 22 unwanted 19th-century omnibus
+    # compilations and was rejected wholesale. The id is kept in the TSV
+    # only as a reference for the announcement; it is never fetched.
+    say "• In copyright — library, second-hand, or Kindle Store."
+    say "  (Z-Library download needs a signed-in account; see the zlib-kindle skill.)"
 else
     say "• In copyright — library, second-hand, or Kindle Store."
     say "  (Z-Library download needs a signed-in account; see the zlib-kindle skill.)"
