@@ -40,21 +40,50 @@ GUARD="${SCRIPT_DIR}/rotation_guard.py"
 
 ZLIB_BASE="https://z-lib.id/s/?q="
 
+# The announcement is what a human reads on Telegram, so it is bounded
+# here, inside the script: a long blurb, an odd title, or a noisy error
+# message can never turn this job into a chat flood. Both a line count
+# and a character count apply.
+MAX_LINES=40
+MAX_CHARS=3000
+
+BUFFER=""
+LINES=0
+
+# Append one line to the announcement buffer.
+say() {
+    LINES=$((LINES + 1))
+    [ "$LINES" -gt "$MAX_LINES" ] && return 0
+    BUFFER="${BUFFER}$1"$'\n'
+}
+
+# Print the bounded announcement and exit with the given code.
+finish() {
+    local code="$1"
+    local out="$BUFFER"
+    if [ "${#out}" -gt "$MAX_CHARS" ]; then
+        out="${out:0:$MAX_CHARS}"
+        out="${out%$'\n'*}"$'\n'"[truncated at ${MAX_CHARS} chars]"
+    fi
+    printf '%s' "$out"
+    exit "$code"
+}
+
 SEND_TO_KINDLE=0
 [ "${1:-}" = "--send" ] && SEND_TO_KINDLE=1
 
 if [ ! -f "$GUARD" ]; then
-    echo "⚠️  rotation guard not found at ${GUARD} — refusing to pick a book."
-    echo "    Without the guard there is no record of what was already sent,"
-    echo "    and a book could be delivered twice."
-    exit 1
+    say "⚠️  rotation guard not found at ${GUARD} — refusing to pick a book."
+    say "    Without the guard there is no record of what was already sent,"
+    say "    and a book could be delivered twice."
+    finish 1
 fi
 
 # Pick from the books that have not been delivered yet.
 PICKED=$("$GUARD" pick) || {
-    echo "⚠️  Every book in the rotation has already been delivered."
-    echo "    The rotation needs new entries in data/horror-books.tsv."
-    exit 1
+    say "⚠️  Every book in the rotation has already been delivered."
+    say "    The rotation needs new entries in data/horror-books.tsv."
+    finish 1
 }
 IFS='|' read -r TITLE AUTHOR BLURB ZQUERY GID <<< "$PICKED"
 
@@ -62,31 +91,31 @@ IFS='|' read -r TITLE AUTHOR BLURB ZQUERY GID <<< "$PICKED"
 ENCODED=$(printf '%s' "$ZQUERY" | sed -e 's/ /+/g' -e 's/&/%26/g' -e 's/?/%3F/g' -e 's/#/%23/g')
 ZLIB_URL="${ZLIB_BASE}${ENCODED}"
 
-echo "👻 Horror Book of the Week"
-echo ""
-echo "*${TITLE}* by ${AUTHOR}"
-echo ""
-echo "${BLURB}"
-echo ""
-echo "🔎 Find it:"
-echo "• Z-Library search: ${ZLIB_URL}"
+say "👻 Horror Book of the Week"
+say ""
+say "*${TITLE}* by ${AUTHOR}"
+say ""
+say "${BLURB}"
+say ""
+say "🔎 Find it:"
+say "• Z-Library search: ${ZLIB_URL}"
 
 if [ -n "$GID" ]; then
     GUT_URL="https://www.gutenberg.org/ebooks/${GID}"
-    echo "• Free legal copy (Project Gutenberg): ${GUT_URL}"
+    say "• Free legal copy (Project Gutenberg): ${GUT_URL}"
 else
-    echo "• In copyright — library, second-hand, or Kindle Store."
-    echo "  (Z-Library download needs a signed-in account; see the zlib-kindle skill.)"
+    say "• In copyright — library, second-hand, or Kindle Store."
+    say "  (Z-Library download needs a signed-in account; see the zlib-kindle skill.)"
 fi
 
-echo ""
-echo "Worth reading if you want something that actually lingers."
+say ""
+say "Worth reading if you want something that actually lingers."
 
 # Optional: download the book and email it to the Kindle address
 if [ "$SEND_TO_KINDLE" = "1" ]; then
-    echo ""
+    say ""
     if [ ! -f "$SKILL_SCRIPT" ]; then
-        echo "⚠️  zlib-kindle skill not found at ${SKILL_SCRIPT} — not emailed."
+        say "⚠️  zlib-kindle skill not found at ${SKILL_SCRIPT} — not emailed."
     else
         # deliver = Z-Library search -> download -> verify title/author ->
         # AgentMail attachment -> Kindle.
@@ -105,13 +134,15 @@ if [ "$SEND_TO_KINDLE" = "1" ]; then
               --match "$TITLE" --title "${TITLE} by ${AUTHOR}" \
               --expect-title "$TITLE" --expect-author "$AUTHOR" \
               > "${DELIVER_LOG}.tmp" 2>&1; then
-            echo "📬 Sent to your Kindle."
+            say "📬 Sent to your Kindle."
             # Record the delivery so this book is never offered again.
             "$GUARD" record "$TITLE" "$AUTHOR"
         else
-            echo "⚠️  Kindle delivery failed — nothing was sent or recorded."
-            echo "    Details: ${DELIVER_LOG}"
+            say "⚠️  Kindle delivery failed — nothing was sent or recorded."
+            say "    Details: ${DELIVER_LOG}"
         fi
         mv -f "${DELIVER_LOG}.tmp" "$DELIVER_LOG" 2>/dev/null || true
     fi
 fi
+
+finish 0
