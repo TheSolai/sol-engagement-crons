@@ -15,6 +15,7 @@ Kindle "send to" addresses are of the form <name>@kindle.com. Amazon converts
 EPUB attachments on delivery, so no conversion step is needed here.
 """
 import base64
+import json
 import mimetypes
 import os
 import re
@@ -24,8 +25,46 @@ import sys
 from email.message import EmailMessage
 
 HIMALAYA_CONFIG = os.path.expanduser("~/.config/himalaya/config.toml")
-DEFAULT_TO = "<KINDLE-RECIPIENT>"
 ACCOUNTS = ("gmail", "icloud")
+
+# The Kindle "send to" address is NOT stored in this repository. It is read
+# at run time from the workspace's gitignored recipient configuration:
+#
+#     ~/.openclaw/workspace/skills/zlib-kindle/state/recipients.json
+#
+#     {"kindle": "<amazon send-to-kindle address>", "gmail": "..."}
+#
+# Why not hard-code it: an address that lives in tracked source is an
+# address that ends up in a public repository. A missing or malformed
+# configuration is a hard error -- refusing to guess is safer than
+# delivering a book to an address nobody chose.
+RECIPIENTS_PATH = os.path.expanduser(
+    "~/.openclaw/workspace/skills/zlib-kindle/state/recipients.json"
+)
+
+
+def load_recipient():
+    """Return the Kindle address from the runtime configuration."""
+    path = os.environ.get("ZLIB_KINDLE_RECIPIENTS") or RECIPIENTS_PATH
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as exc:
+        raise SystemExit(
+            "cannot read the delivery recipient from %s: %s" % (path, exc)
+        )
+    except ValueError as exc:
+        raise SystemExit(
+            "delivery recipients at %s are not valid JSON: %s" % (path, exc)
+        )
+    if not isinstance(data, dict):
+        raise SystemExit("delivery recipients at %s must be a JSON object" % path)
+    address = data.get("kindle")
+    if not isinstance(address, str) or "@" not in address:
+        raise SystemExit(
+            "delivery recipients at %s have no usable \"kindle\" address" % path
+        )
+    return address
 
 
 def read_account(path, account):
@@ -88,6 +127,8 @@ def main():
             "not send without an explicit standing instruction from Amre."
         )
 
+    recipient = load_recipient()
+
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     path = os.path.abspath(sys.argv[1])
@@ -109,7 +150,7 @@ def main():
 
         msg = EmailMessage()
         msg["From"] = f"Annemarie <{username}>"
-        msg["To"] = DEFAULT_TO
+        msg["To"] = recipient
         msg["Subject"] = title
         msg.set_content(f"{title}\n\nSent from the Dross engagement desk. Enjoy it.\n")
         msg.add_attachment(attachment, maintype=maintype, subtype=subtype,
@@ -130,7 +171,7 @@ def main():
             continue
 
         print("SENT to %s | via %s | subject=%r | attachment=%s (%d bytes)" % (
-            DEFAULT_TO, account, title, os.path.basename(path), len(attachment)))
+            recipient, account, title, os.path.basename(path), len(attachment)))
         return
 
     raise SystemExit(f"all accounts failed; last error -> {last_error}")

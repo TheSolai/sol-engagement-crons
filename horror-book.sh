@@ -16,7 +16,7 @@
 #
 # --send uses the zlib-kindle skill pipeline: Z-Library search -> download
 # to ~/Downloads/dross-books/ -> title/author verification -> AgentMail
-# attachment -> <KINDLE-RECIPIENT>.
+# attachment -> the Kindle address held in the runtime recipient config.
 
 set -u
 
