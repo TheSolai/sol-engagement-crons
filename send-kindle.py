@@ -74,6 +74,20 @@ def smtp_connect(username, password, host, port):
 
 
 def main():
+    # Delivery is locked by default. Unless the Z-Library pipeline's
+    # state/DELIVERY_ARMED file exists, nothing is sent. See
+    # skills/zlib-kindle/scripts/delivery_lock.py.
+    lock = os.path.join(
+        os.path.expanduser("~/.openclaw/workspace/skills/zlib-kindle"),
+        "state",
+        "DELIVERY_ARMED",
+    )
+    if not os.path.exists(lock):
+        raise SystemExit(
+            "refusing to send: delivery is locked. The book pipeline may "
+            "not send without an explicit standing instruction from Amre."
+        )
+
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     path = os.path.abspath(sys.argv[1])
